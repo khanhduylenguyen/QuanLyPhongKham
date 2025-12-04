@@ -1,6 +1,7 @@
 import { CLINIC_NAME } from "@/lib/config";
-import { createStaffAccount } from "@/lib/auth";
-import { useMemo, useRef, useState } from "react";
+import { createStaffAccount, hasRole } from "@/lib/auth";
+import { useMemo, useRef, useState, useEffect } from "react";
+import { loadClinics, type ClinicItem } from "./Clinics";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -50,7 +51,15 @@ import {
   Trash2,
   Stethoscope,
   CalendarDays,
+  Building2,
+  MapPin,
+  ExternalLink,
+  Clock,
 } from "lucide-react";
+import ReviewStats from "@/components/reviews/ReviewStats";
+import DoctorReviews from "@/components/reviews/DoctorReviews";
+import { getDoctorRating } from "@/lib/reviews";
+import { GoogleMap, Marker, InfoWindow } from "@react-google-maps/api";
 
 // Types
 export type StaffRole = "doctor" | "receptionist" | "nurse" | "manager";
@@ -72,6 +81,7 @@ interface Staff {
   experienceYears?: number;
   status: StaffStatus;
   rating?: number;
+  assignedClinics?: string[]; // Array of clinic IDs
 }
 
 // Mock data
@@ -159,6 +169,20 @@ export type PermissionKey = (typeof permissionKeys)[number]["key"];
 
 const STAFF_STORAGE_KEY = "cliniccare:staff";
 
+// Get Google Maps API Key from settings or env
+const getMapsApiKey = (): string => {
+  try {
+    const settings = localStorage.getItem("cliniccare:settings");
+    if (settings) {
+      const parsed = JSON.parse(settings);
+      if (parsed.integrations?.mapsApiKey) {
+        return parsed.integrations.mapsApiKey;
+      }
+    }
+  } catch {}
+  return import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
+};
+
 // Load staff from localStorage or use initial data
 const loadStaff = (): Staff[] => {
   try {
@@ -198,11 +222,67 @@ const Doctors = () => {
   const [openDelete, setOpenDelete] = useState(false);
   const [openPermission, setOpenPermission] = useState(false);
   const [openSchedule, setOpenSchedule] = useState(false);
+  const [openAssignClinic, setOpenAssignClinic] = useState(false);
   const [viewMode, setViewMode] = useState<"table" | "card">("table");
+  const [clinics, setClinics] = useState<ClinicItem[]>([]);
+  const [selectedClinics, setSelectedClinics] = useState<string[]>([]);
+  const [isMapsLoaded, setIsMapsLoaded] = useState(false);
+  const [selectedMapClinic, setSelectedMapClinic] = useState<ClinicItem | null>(null);
+  const mapsApiKey = getMapsApiKey();
 
   const printRef = useRef<HTMLDivElement | null>(null);
 
   const [permissions, setPermissions] = useState<Record<string, boolean>>({});
+
+  // Load clinics on mount and listen for updates
+  useEffect(() => {
+    const loadClinicsData = () => {
+      setClinics(loadClinics());
+    };
+    loadClinicsData();
+    window.addEventListener("clinicsUpdated", loadClinicsData);
+    return () => window.removeEventListener("clinicsUpdated", loadClinicsData);
+  }, []);
+
+  // Load Google Maps API
+  useEffect(() => {
+    if (!mapsApiKey || isMapsLoaded || window.google?.maps) {
+      if (window.google?.maps) {
+        setIsMapsLoaded(true);
+      }
+      return;
+    }
+
+    const existingScript = document.querySelector('script[src*="maps/api/js"]');
+    if (existingScript) {
+      if (window.google?.maps) {
+        setIsMapsLoaded(true);
+      }
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${mapsApiKey}&libraries=places&callback=initGoogleMapsDoctors`;
+    script.async = true;
+    script.defer = true;
+
+    (window as any).initGoogleMapsDoctors = () => {
+      setIsMapsLoaded(true);
+      delete (window as any).initGoogleMapsDoctors;
+    };
+
+    script.onerror = () => {
+      console.error("Failed to load Google Maps API");
+    };
+
+    document.head.appendChild(script);
+
+    return () => {
+      if ((window as any).initGoogleMapsDoctors) {
+        delete (window as any).initGoogleMapsDoctors;
+      }
+    };
+  }, [mapsApiKey, isMapsLoaded]);
 
   const form = useForm<z.infer<typeof staffSchema>>({
     resolver: zodResolver(staffSchema),
@@ -423,6 +503,40 @@ const Doctors = () => {
     setSelected(s);
     setPermissions({});
     setOpenPermission(true);
+  };
+
+  const openAssignClinicWith = (s: Staff) => {
+    setSelected(s);
+    setSelectedClinics(s.assignedClinics || []);
+    setSelectedMapClinic(null);
+    setOpenAssignClinic(true);
+  };
+
+  const onAssignClinics = () => {
+    if (!selected) return;
+    setStaff((prev) => {
+      const updated = prev.map((s) =>
+        s.id === selected.id
+          ? { ...s, assignedClinics: selectedClinics }
+          : s
+      );
+      saveStaff(updated);
+      return updated;
+    });
+    setOpenAssignClinic(false);
+    setSelected(null);
+    setSelectedMapClinic(null);
+    toast.success("Đã cập nhật phân công chi nhánh");
+  };
+
+  const getClinicInfo = (clinicId: string): ClinicItem | undefined => {
+    return clinics.find((c) => c.id === clinicId);
+  };
+
+  const clinicStatusBadge = (status: "active" | "suspended" | "maintenance") => {
+    if (status === "active") return <Badge className="bg-[#16a34a]/10 text-[#16a34a] border-0">Hoạt động</Badge>;
+    if (status === "suspended") return <Badge className="bg-[#f59e0b]/10 text-[#f59e0b] border-0">Tạm ngưng</Badge>;
+    return <Badge className="bg-red-50 text-red-600 border-0">Bảo trì</Badge>;
   };
 
   // Weekly schedule with hourly shifts
@@ -734,6 +848,7 @@ const Doctors = () => {
                       <th className="text-left py-3 px-2">Họ tên</th>
                       <th className="text-left py-3 px-2">Vai trò</th>
                       <th className="text-left py-3 px-2">Chuyên khoa</th>
+                      <th className="text-left py-3 px-2">Chi nhánh</th>
                       <th className="text-left py-3 px-2">Số lịch hôm nay</th>
                       <th className="text-left py-3 px-2">Trạng thái</th>
                       <th className="text-left py-3 px-2">Hành động</th>
@@ -755,6 +870,35 @@ const Doctors = () => {
                           {s.role === "doctor" ? "Bác sĩ" : s.role === "receptionist" ? "Lễ tân" : s.role === "nurse" ? "Y tá" : "Quản lý"}
                         </td>
                         <td className="py-3 px-2">{s.specialty || "-"}</td>
+                        <td className="py-3 px-2">
+                          {s.assignedClinics && s.assignedClinics.length > 0 ? (
+                            <div className="flex flex-col gap-1">
+                              {s.assignedClinics.slice(0, 2).map((clinicId) => {
+                                const clinic = getClinicInfo(clinicId);
+                                if (!clinic) return null;
+                                return (
+                                  <div key={clinicId} className="flex flex-col gap-0.5">
+                                    <Badge variant="outline" className="text-xs w-fit">
+                                      <Building2 className="h-3 w-3 mr-1" />
+                                      {clinic.name}
+                                    </Badge>
+                                    <div className="text-xs text-[#687280] flex items-center gap-1">
+                                      <MapPin className="h-3 w-3" />
+                                      {clinic.address}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                              {s.assignedClinics.length > 2 && (
+                                <Badge variant="outline" className="text-xs w-fit">
+                                  +{s.assignedClinics.length - 2} chi nhánh khác
+                                </Badge>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-[#687280]">-</span>
+                          )}
+                        </td>
                         <td className="py-3 px-2">{s.todayAppointments}</td>
                         <td className="py-3 px-2">{statusPill(s.status)}</td>
                         <td className="py-3 px-2">
@@ -765,6 +909,11 @@ const Doctors = () => {
                             <Button variant="ghost" size="icon" onClick={() => openEditWith(s)}>
                               <Edit className="h-4 w-4" />
                             </Button>
+                            {hasRole("admin") && (
+                              <Button variant="ghost" size="icon" onClick={() => openAssignClinicWith(s)} title="Phân công chi nhánh">
+                                <Building2 className="h-4 w-4" />
+                              </Button>
+                            )}
                             <Button variant="ghost" size="icon" onClick={() => openPermissionWith(s)}>
                               <ShieldCheck className="h-4 w-4" />
                             </Button>
@@ -800,9 +949,32 @@ const Doctors = () => {
                         <span className="flex items-center gap-1"><Stethoscope className="h-4 w-4" />{s.role === "doctor" ? s.specialty || "Bác sĩ" : s.role === "receptionist" ? "Lễ tân" : s.role === "nurse" ? "Y tá" : "Quản lý"}</span>
                         <span className="flex items-center gap-1"><Users className="h-4 w-4" />{s.todayAppointments}</span>
                       </div>
+                      {s.assignedClinics && s.assignedClinics.length > 0 && (
+                        <div className="mt-3 space-y-2">
+                          {s.assignedClinics.map((clinicId) => {
+                            const clinic = getClinicInfo(clinicId);
+                            if (!clinic) return null;
+                            return (
+                              <div key={clinicId} className="p-2 border border-[#E5E7EB] rounded-md">
+                                <div className="flex items-center gap-1 mb-1">
+                                  <Building2 className="h-3 w-3 text-[#007BFF]" />
+                                  <span className="text-xs font-medium">{clinic.name}</span>
+                                </div>
+                                <div className="text-xs text-[#687280] flex items-center gap-1">
+                                  <MapPin className="h-3 w-3" />
+                                  {clinic.address}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                       <div className="mt-4 flex items-center gap-2">
                         <Button variant="outline" size="sm" onClick={() => { setSelected(s); setOpenPreview(true); }}>Xem</Button>
                         <Button variant="outline" size="sm" onClick={() => openEditWith(s)}>Sửa</Button>
+                        {hasRole("admin") && (
+                          <Button variant="outline" size="sm" onClick={() => openAssignClinicWith(s)}>Chi nhánh</Button>
+                        )}
                         <Button variant="outline" size="sm" onClick={() => openPermissionWith(s)}>Phân quyền</Button>
                         <Button variant="outline" size="sm" onClick={() => { setSelected(s); setOpenSchedule(true); }}>Lịch</Button>
                       </div>
@@ -859,11 +1031,122 @@ const Doctors = () => {
                   <div className="text-[#687280]">Kinh nghiệm</div>
                   <div className="font-medium">{selected.experienceYears ? `${selected.experienceYears} năm` : "-"}</div>
                 </div>
+                {/* Assigned clinics section */}
+                {selected.assignedClinics && selected.assignedClinics.length > 0 && (
+                  <div className="col-span-2 space-y-4">
+                    <div className="text-[#687280] mb-2">Chi nhánh được phân công</div>
+                    <div className="space-y-2">
+                      {selected.assignedClinics.map((clinicId) => {
+                        const clinic = getClinicInfo(clinicId);
+                        if (!clinic) return null;
+                        return (
+                          <div key={clinicId} className="p-3 border border-[#E5E7EB] rounded-md">
+                            <div className="font-medium text-sm flex items-center gap-2 mb-2">
+                              <Building2 className="h-4 w-4 text-[#007BFF]" />
+                              {clinic.name}
+                              {clinicStatusBadge(clinic.status)}
+                            </div>
+                            <div className="text-xs text-[#687280] flex items-center gap-1 mb-2">
+                              <MapPin className="h-3 w-3" />
+                              {clinic.address}
+                            </div>
+                            {clinic.mapUrl && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="text-xs"
+                                onClick={() => window.open(clinic.mapUrl, "_blank")}
+                              >
+                                <ExternalLink className="h-3 w-3 mr-1" />
+                                Xem trên Google Maps
+                              </Button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {/* Google Maps for assigned clinics */}
+                    {isMapsLoaded && mapsApiKey && selected.assignedClinics.length > 0 && (
+                      <div className="mt-4">
+                        <div className="text-sm font-medium mb-2">Bản đồ các chi nhánh</div>
+                        <div className="h-64 w-full rounded-md overflow-hidden border border-[#E5E7EB]">
+                          <GoogleMap
+                            mapContainerStyle={{ width: "100%", height: "100%" }}
+                            center={{
+                              lat: 10.8231,
+                              lng: 106.6297,
+                            }}
+                            zoom={12}
+                            options={{
+                              streetViewControl: false,
+                              mapTypeControl: false,
+                              fullscreenControl: true,
+                            }}
+                          >
+                            {selected.assignedClinics.map((clinicId) => {
+                              const clinic = getClinicInfo(clinicId);
+                              if (!clinic) return null;
+                              // Try to extract coordinates from mapUrl or use default
+                              const coords = clinic.mapUrl?.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+                              const lat = coords ? parseFloat(coords[1]) : 10.8231 + (Math.random() - 0.5) * 0.1;
+                              const lng = coords ? parseFloat(coords[2]) : 106.6297 + (Math.random() - 0.5) * 0.1;
+                              return (
+                                <Marker
+                                  key={clinicId}
+                                  position={{ lat, lng }}
+                                  title={clinic.name}
+                                  onClick={() => setSelectedMapClinic(clinic)}
+                                />
+                              );
+                            })}
+                            {selectedMapClinic && (
+                              <InfoWindow
+                                position={{
+                                  lat: 10.8231,
+                                  lng: 106.6297,
+                                }}
+                                onCloseClick={() => setSelectedMapClinic(null)}
+                              >
+                                <div>
+                                  <div className="font-semibold">{selectedMapClinic.name}</div>
+                                  <div className="text-xs text-[#687280]">{selectedMapClinic.address}</div>
+                                </div>
+                              </InfoWindow>
+                            )}
+                          </GoogleMap>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {selected.role === "doctor" && (
+                  <div>
+                    <div className="text-[#687280]">Đánh giá</div>
+                    <div className="font-medium">
+                      {getDoctorRating(selected.id) > 0 
+                        ? `${getDoctorRating(selected.id).toFixed(1)}/5.0` 
+                        : selected.rating 
+                        ? `${selected.rating}/5.0` 
+                        : "Chưa có"}
+                    </div>
+                  </div>
+                )}
               </div>
+              {selected.role === "doctor" && (
+                <div className="space-y-4 pt-4 border-t">
+                  <ReviewStats doctorId={selected.id} showChart={false} />
+                  <DoctorReviews doctorId={selected.id} maxReviews={5} showHeader={true} />
+                </div>
+              )}
               <div className="flex gap-2">
                 <Button variant="outline" onClick={() => { setOpenPreview(false); openEditWith(selected); }}>
                   <Edit className="h-4 w-4 mr-2" /> Cập nhật
                 </Button>
+                {hasRole("admin") && (
+                  <Button variant="outline" onClick={() => { setOpenPreview(false); openAssignClinicWith(selected); }}>
+                    <Building2 className="h-4 w-4 mr-2" /> Phân công chi nhánh
+                  </Button>
+                )}
                 <Button variant="outline" onClick={() => openPermissionWith(selected)}>
                   <ShieldCheck className="h-4 w-4 mr-2" /> Phân quyền
                 </Button>
@@ -1026,6 +1309,194 @@ const Doctors = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Assign Clinic Dialog */}
+      {hasRole("admin") && (
+        <Dialog open={openAssignClinic} onOpenChange={setOpenAssignClinic}>
+          <DialogContent className="max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
+            <DialogHeader>
+              <DialogTitle>Phân công chi nhánh</DialogTitle>
+              <DialogDescription>
+                Chọn chi nhánh cho {selected?.fullName} (chỉ Admin mới có quyền phân công)
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex-1 overflow-hidden grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {/* Left: Clinic List */}
+              <div className="space-y-4 overflow-y-auto pr-2">
+                {clinics.length === 0 ? (
+                  <p className="text-sm text-[#687280] text-center py-4">
+                    Chưa có phòng khám nào. Vui lòng tạo phòng khám trước.
+                  </p>
+                ) : (
+                  clinics.map((clinic) => (
+                    <Card key={clinic.id} className={`border-[#E5E7EB] cursor-pointer transition-colors ${
+                      selectedClinics.includes(clinic.id) ? "border-[#007BFF] bg-[#007BFF]/5" : ""
+                    }`} onClick={() => {
+                      setSelectedClinics((prev) =>
+                        prev.includes(clinic.id)
+                          ? prev.filter((id) => id !== clinic.id)
+                          : [...prev, clinic.id]
+                      );
+                    }}>
+                      <CardContent className="p-4">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-2">
+                              <Checkbox
+                                checked={selectedClinics.includes(clinic.id)}
+                                onCheckedChange={(checked) => {
+                                  setSelectedClinics((prev) =>
+                                    checked
+                                      ? [...prev, clinic.id]
+                                      : prev.filter((id) => id !== clinic.id)
+                                  );
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                              <div className="font-semibold text-gray-900 flex items-center gap-2">
+                                <Building2 className="h-4 w-4" />
+                                {clinic.name}
+                              </div>
+                              {clinicStatusBadge(clinic.status)}
+                            </div>
+                            <div className="text-sm text-[#687280] flex items-center gap-1 mb-2">
+                              <MapPin className="h-3 w-3" />
+                              {clinic.address}
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 text-xs text-[#687280] mb-2">
+                              <div className="flex items-center gap-1">
+                                <Users className="h-3 w-3" />
+                                {clinic.doctors} bác sĩ
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <Clock className="h-3 w-3" />
+                                {clinic.hours}
+                              </div>
+                            </div>
+                            {clinic.phone && (
+                              <div className="text-xs text-[#687280] mb-2">📞 {clinic.phone}</div>
+                            )}
+                            {clinic.address && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-xs"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const mapsUrl = clinic.mapUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(clinic.address)}`;
+                                  window.open(mapsUrl, "_blank");
+                                }}
+                              >
+                                <ExternalLink className="h-3 w-3 mr-1" />
+                                Xem trên Google Maps
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))
+                )}
+              </div>
+              {/* Right: Google Maps */}
+              <div className="hidden lg:block">
+                {isMapsLoaded && mapsApiKey && clinics.length > 0 ? (
+                  <div className="h-full rounded-md overflow-hidden border border-[#E5E7EB]">
+                    <GoogleMap
+                      mapContainerStyle={{ width: "100%", height: "100%" }}
+                      center={{
+                        lat: 10.8231,
+                        lng: 106.6297,
+                      }}
+                      zoom={12}
+                      options={{
+                        streetViewControl: false,
+                        mapTypeControl: false,
+                        fullscreenControl: true,
+                      }}
+                    >
+                      {clinics.map((clinic) => {
+                        // Try to extract coordinates from mapUrl or use default
+                        const coords = clinic.mapUrl?.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+                        const lat = coords ? parseFloat(coords[1]) : 10.8231 + (Math.random() - 0.5) * 0.1;
+                        const lng = coords ? parseFloat(coords[2]) : 106.6297 + (Math.random() - 0.5) * 0.1;
+                        const isSelected = selectedClinics.includes(clinic.id);
+                        return (
+                          <Marker
+                            key={clinic.id}
+                            position={{ lat, lng }}
+                            title={clinic.name}
+                            icon={{
+                              path: window.google?.maps?.SymbolPath?.CIRCLE,
+                              scale: isSelected ? 10 : 7,
+                              fillColor: isSelected ? "#007BFF" : "#687280",
+                              fillOpacity: 1,
+                              strokeColor: "#ffffff",
+                              strokeWeight: 2,
+                            }}
+                            onClick={() => {
+                              setSelectedMapClinic(clinic);
+                              if (!selectedClinics.includes(clinic.id)) {
+                                setSelectedClinics([...selectedClinics, clinic.id]);
+                              }
+                            }}
+                          />
+                        );
+                      })}
+                      {selectedMapClinic && (
+                        <InfoWindow
+                          position={{
+                            lat: (() => {
+                              const coords = selectedMapClinic.mapUrl?.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+                              return coords ? parseFloat(coords[1]) : 10.8231;
+                            })(),
+                            lng: (() => {
+                              const coords = selectedMapClinic.mapUrl?.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+                              return coords ? parseFloat(coords[2]) : 106.6297;
+                            })(),
+                          }}
+                          onCloseClick={() => setSelectedMapClinic(null)}
+                        >
+                          <div>
+                            <div className="font-semibold mb-1">{selectedMapClinic.name}</div>
+                            <div className="text-xs text-[#687280] mb-2">{selectedMapClinic.address}</div>
+                            <div className="text-xs text-[#687280]">
+                              {selectedMapClinic.doctors} bác sĩ • {selectedMapClinic.hours}
+                            </div>
+                          </div>
+                        </InfoWindow>
+                      )}
+                    </GoogleMap>
+                  </div>
+                ) : mapsApiKey ? (
+                  <div className="h-full flex items-center justify-center border border-[#E5E7EB] rounded-md bg-[#F9FAFB]">
+                    <div className="text-center text-sm text-[#687280]">
+                      <MapPin className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                      <p>Đang tải bản đồ...</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="h-full flex items-center justify-center border border-[#E5E7EB] rounded-md bg-[#F9FAFB]">
+                    <div className="text-center text-sm text-[#687280]">
+                      <MapPin className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                      <p>Chưa cấu hình Google Maps API Key</p>
+                      <p className="text-xs mt-1">Vào Settings → Tích hợp để cấu hình</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+            <DialogFooter>
+              <Button
+                onClick={onAssignClinics}
+                className="bg-[#007BFF] hover:bg-[#0056B3]"
+              >
+                Lưu phân công
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* Delete */}
       <AlertDialog open={openDelete} onOpenChange={setOpenDelete}>

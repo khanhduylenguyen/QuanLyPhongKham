@@ -40,6 +40,8 @@ import { getCurrentUser } from "@/lib/auth";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
+import { createSchedulesFromPrescription } from "@/lib/medication-schedule";
+import { toast } from "sonner";
 
 const PRESCRIPTIONS_STORAGE_KEY = "cliniccare:prescriptions";
 const PATIENTS_STORAGE_KEY = "cliniccare:patients";
@@ -381,6 +383,25 @@ const Prescriptions = () => {
 
       allPrescriptions.push(newPrescription);
       savePrescriptions(allPrescriptions);
+      
+      // Tự động tạo lịch uống thuốc
+      if (patientId) {
+        try {
+          const schedules = createSchedulesFromPrescription(
+            newPrescription.id,
+            patientId,
+            drugs,
+            new Date().toISOString().split("T")[0]
+          );
+          toast.success(`Đã tạo đơn thuốc và ${schedules.length} lịch uống thuốc`);
+        } catch (error) {
+          console.error("Error creating medication schedules:", error);
+          toast.success("Đã tạo đơn thuốc");
+        }
+      } else {
+        toast.success("Đã tạo đơn thuốc");
+      }
+      
       setIsCreateDialogOpen(false);
     }
 

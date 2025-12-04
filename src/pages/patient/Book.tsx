@@ -26,6 +26,8 @@ import * as z from "zod";
 import { CalendarPlus, Calendar, Clock, User, Stethoscope, FileText, CheckCircle2 } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth";
 import { toast } from "sonner";
+import PaymentDialog from "@/components/payment/PaymentDialog";
+import { getPriceBySpecialty } from "@/lib/pricing";
 
 const STAFF_STORAGE_KEY = "cliniccare:staff";
 const APPOINTMENTS_STORAGE_KEY = "cliniccare:appointments";
@@ -137,6 +139,14 @@ const Book = () => {
   const [selectedSpecialty, setSelectedSpecialty] = useState<string>(preselectedSpecialty || "");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
+  const [showPaymentDialog, setShowPaymentDialog] = useState(false);
+  const [createdAppointmentId, setCreatedAppointmentId] = useState<string | null>(null);
+  const [appointmentData, setAppointmentData] = useState<{
+    doctorName: string;
+    specialty: string;
+    date: string;
+    time: string;
+  } | null>(null);
 
   const form = useForm<BookingFormValues>({
     resolver: zodResolver(bookingSchema),
@@ -279,20 +289,18 @@ const Book = () => {
     window.dispatchEvent(new CustomEvent("appointmentsUpdated"));
 
     setIsSubmitting(false);
-    setIsSuccess(true);
-    toast.success("Đặt lịch thành công! Vui lòng chờ xác nhận từ phòng khám.");
-
-    // Reset form after a delay
-    setTimeout(() => {
-      form.reset({
-        specialty: data.specialty, // Keep specialty
-        doctorId: "",
-        date: "",
-        time: "",
-        notes: "",
-      });
-      setIsSuccess(false);
-    }, 3000);
+    
+    // Store appointment data for payment dialog
+    setCreatedAppointmentId(nextId);
+    setAppointmentData({
+      doctorName: doctor.name,
+      specialty: data.specialty,
+      date: data.date,
+      time: data.time,
+    });
+    
+    // Show payment dialog
+    setShowPaymentDialog(true);
   };
 
   // Load doctors on mount if specialty is pre-selected
@@ -568,6 +576,46 @@ const Book = () => {
           </CardContent>
         </Card>
       </div>
+
+      {/* Payment Dialog */}
+      {showPaymentDialog && createdAppointmentId && appointmentData && (
+        <PaymentDialog
+          open={showPaymentDialog}
+          onOpenChange={(open) => {
+            setShowPaymentDialog(open);
+            if (!open) {
+              // Reset form and show success message
+              setIsSuccess(true);
+              toast.success("Đặt lịch thành công! Vui lòng chờ xác nhận từ phòng khám.");
+              setTimeout(() => {
+                form.reset({
+                  specialty: appointmentData.specialty,
+                  doctorId: "",
+                  date: "",
+                  time: "",
+                  notes: "",
+                });
+                setIsSuccess(false);
+                setCreatedAppointmentId(null);
+                setAppointmentData(null);
+              }, 3000);
+            }
+          }}
+          appointmentId={createdAppointmentId}
+          amount={getPriceBySpecialty(appointmentData.specialty)}
+          doctorName={appointmentData.doctorName}
+          specialty={appointmentData.specialty}
+          date={appointmentData.date}
+          time={appointmentData.time}
+          onPaymentSuccess={(paymentId, transactionId) => {
+            toast.success("Thanh toán thành công! Lịch hẹn đã được xác nhận.");
+            // Navigate to appointments page after successful payment
+            setTimeout(() => {
+              navigate("/patient/appointments");
+            }, 2000);
+          }}
+        />
+      )}
     </PatientLayout>
   );
 };

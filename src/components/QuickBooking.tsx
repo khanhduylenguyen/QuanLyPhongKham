@@ -12,6 +12,7 @@ import {
 import { Calendar, Search, User } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth";
 import AuthDialog from "@/components/auth/AuthDialog";
+import { toast } from "sonner";
 
 const STAFF_STORAGE_KEY = "cliniccare:staff";
 
@@ -30,7 +31,8 @@ const loadDoctors = () => {
 
 const QuickBooking = () => {
   const navigate = useNavigate();
-  const [doctors, setDoctors] = useState(() => loadDoctors());
+  const [allDoctors, setAllDoctors] = useState(() => loadDoctors());
+  const [filteredDoctors, setFilteredDoctors] = useState<Array<{ id: string; name: string; specialty: string }>>([]);
   const [showAuthDialog, setShowAuthDialog] = useState(false);
   const [selectedSpecialty, setSelectedSpecialty] = useState<string>("");
   const [selectedDoctor, setSelectedDoctor] = useState<string>("");
@@ -38,9 +40,13 @@ const QuickBooking = () => {
 
   useEffect(() => {
     // Load doctors on mount
-    setDoctors(loadDoctors());
+    const loaded = loadDoctors();
+    setAllDoctors(loaded);
     
-    const handleUpdate = () => setDoctors(loadDoctors());
+    const handleUpdate = () => {
+      const loaded = loadDoctors();
+      setAllDoctors(loaded);
+    };
     window.addEventListener("staffUpdated", handleUpdate);
     window.addEventListener("storage", handleUpdate);
     return () => {
@@ -49,7 +55,52 @@ const QuickBooking = () => {
     };
   }, []);
 
+  // Filter doctors when specialty changes
+  useEffect(() => {
+    if (selectedSpecialty) {
+      const filtered = allDoctors.filter(
+        (doc) => doc.specialty === selectedSpecialty || doc.specialty === "Nội tổng quát"
+      );
+      setFilteredDoctors(filtered);
+      // Reset doctor selection when specialty changes
+      if (selectedDoctor) {
+        const stillAvailable = filtered.some((doc) => doc.id === selectedDoctor);
+        if (!stillAvailable) {
+          setSelectedDoctor("");
+        }
+      }
+    } else {
+      setFilteredDoctors([]);
+      setSelectedDoctor("");
+    }
+  }, [selectedSpecialty, allDoctors]);
+
   const handleSearchClick = () => {
+    // Validate form
+    if (!selectedSpecialty) {
+      toast.error("Vui lòng chọn chuyên khoa");
+      return;
+    }
+
+    if (!selectedDoctor) {
+      toast.error("Vui lòng chọn bác sĩ");
+      return;
+    }
+
+    if (!selectedDate) {
+      toast.error("Vui lòng chọn ngày khám");
+      return;
+    }
+
+    // Check if date is in the past
+    const selected = new Date(selectedDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (selected < today) {
+      toast.error("Vui lòng chọn ngày trong tương lai");
+      return;
+    }
+
     const user = getCurrentUser();
     if (!user) {
       setShowAuthDialog(true);
@@ -110,24 +161,29 @@ const QuickBooking = () => {
                 <User className="h-4 w-4 text-primary" />
                 Bác sĩ
               </label>
-              <Select value={selectedDoctor} onValueChange={setSelectedDoctor}>
+              <Select 
+                value={selectedDoctor} 
+                onValueChange={setSelectedDoctor}
+                disabled={!selectedSpecialty}
+              >
                 <SelectTrigger>
-                  <SelectValue placeholder="Chọn bác sĩ" />
+                  <SelectValue placeholder={selectedSpecialty ? "Chọn bác sĩ" : "Chọn chuyên khoa trước"} />
                 </SelectTrigger>
                 <SelectContent>
-                  {doctors.length > 0 ? (
-                    doctors.map((doc) => (
+                  {filteredDoctors.length > 0 ? (
+                    filteredDoctors.map((doc) => (
                       <SelectItem key={doc.id} value={doc.id}>
                         {doc.name} - {doc.specialty}
                       </SelectItem>
                     ))
+                  ) : selectedSpecialty ? (
+                    <div className="p-4 text-center text-sm text-muted-foreground">
+                      Không có bác sĩ nào cho chuyên khoa này
+                    </div>
                   ) : (
-                    <>
-                      <SelectItem value="doctor1">BS. Nguyễn Văn An</SelectItem>
-                      <SelectItem value="doctor2">BS. Trần Thị Bình</SelectItem>
-                      <SelectItem value="doctor3">BS. Lê Hoàng Cường</SelectItem>
-                      <SelectItem value="doctor4">BS. Phạm Thu Dung</SelectItem>
-                    </>
+                    <div className="p-4 text-center text-sm text-muted-foreground">
+                      Vui lòng chọn chuyên khoa trước
+                    </div>
                   )}
                 </SelectContent>
               </Select>

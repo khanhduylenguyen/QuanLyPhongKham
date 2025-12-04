@@ -47,6 +47,7 @@ import {
   XCircle,
   Calendar,
   Stethoscope,
+  Video,
 } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth";
 import { createEHR, type EHRRecord } from "@/lib/api";
@@ -406,6 +407,14 @@ const Appointments = () => {
                             <>
                               <Button
                                 size="sm"
+                                className="bg-[#16a34a] hover:bg-[#15803d]"
+                                onClick={() => navigate(`/telemedicine/${apt.id}`)}
+                              >
+                                <Video className="h-4 w-4 mr-2" />
+                                Gọi video
+                              </Button>
+                              <Button
+                                size="sm"
                                 className="bg-[#007BFF] hover:bg-[#0056B3]"
                                 onClick={() => handleView(apt)}
                               >
@@ -519,6 +528,14 @@ const Appointments = () => {
                           <div className="flex items-center gap-2 ml-4">
                             {apt.status === "confirmed" && (
                               <>
+                                <Button
+                                  size="sm"
+                                  className="bg-[#16a34a] hover:bg-[#15803d]"
+                                  onClick={() => navigate(`/telemedicine/${apt.id}`)}
+                                >
+                                  <Video className="h-4 w-4 mr-2" />
+                                  Gọi video
+                                </Button>
                                 <Button
                                   size="sm"
                                   className="bg-[#007BFF] hover:bg-[#0056B3]"

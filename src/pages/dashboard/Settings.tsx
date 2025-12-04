@@ -10,8 +10,10 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { Download, Upload, RotateCcw, Save, Shield, Bell, Palette, Building2, Link as LinkIcon, Database, Settings as SettingsIcon } from "lucide-react";
 import { DEFAULT_SETTINGS, SETTINGS_STORAGE_KEY, SystemSettings, ThemeMode, saveSettings } from "@/lib/settings";
+import { useTheme } from "next-themes";
 
 const Settings = () => {
+  const { setTheme: setNextTheme } = useTheme();
   const [settings, setSettings] = useState<SystemSettings>(DEFAULT_SETTINGS);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
@@ -208,7 +210,15 @@ const Settings = () => {
               <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <Label>Theme</Label>
-                  <Select value={settings.ui.theme} onValueChange={(v) => setSettings((s) => ({ ...s, ui: { ...s.ui, theme: v as ThemeMode } }))}>
+                  <Select value={settings.ui.theme} onValueChange={(v) => {
+                    const newTheme = v as ThemeMode;
+                    setSettings((s) => {
+                      const updated = { ...s, ui: { ...s.ui, theme: newTheme } };
+                      saveSettings(updated);
+                      setNextTheme(newTheme);
+                      return updated;
+                    });
+                  }}>
                     <SelectTrigger className="border-[#E5E7EB]"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="system">Hệ thống</SelectItem>

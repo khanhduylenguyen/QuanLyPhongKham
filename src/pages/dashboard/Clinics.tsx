@@ -20,7 +20,7 @@ import { getSettings } from "@/lib/settings";
 type ClinicType = "headquarter" | "branch" | "department";
 type ClinicStatus = "active" | "suspended" | "maintenance";
 
-interface ClinicItem {
+export interface ClinicItem {
   id: string; // code: PK001
   name: string;
   address: string;
@@ -62,6 +62,33 @@ const initialClinics: ClinicItem[] = [
   { id: "PK003", name: "Phòng Xét nghiệm", address: "Nội bộ", type: "department", status: "active", hours: "Theo lịch", manager: "Ds. Phạm Tuấn", doctors: 3, rooms: { clinic: 2, lab: 2, beds: 0 }, equipments: [ { name: "PCR", status: "due" } ] },
 ];
 
+const CLINICS_STORAGE_KEY = "cliniccare:clinics";
+
+// Load clinics from localStorage or use initial data
+export const loadClinics = (): ClinicItem[] => {
+  try {
+    const stored = localStorage.getItem(CLINICS_STORAGE_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      return Array.isArray(parsed) && parsed.length > 0 ? parsed : initialClinics;
+    }
+  } catch {
+    // Fallback to initial data if parse fails
+  }
+  return initialClinics;
+};
+
+// Save clinics to localStorage
+export const saveClinics = (clinics: ClinicItem[]) => {
+  try {
+    localStorage.setItem(CLINICS_STORAGE_KEY, JSON.stringify(clinics));
+    // Dispatch custom event to notify other components
+    window.dispatchEvent(new CustomEvent("clinicsUpdated"));
+  } catch {
+    // Ignore storage errors
+  }
+};
+
 const clinicSchema = z.object({
   name: z.string().min(2, "Tên tối thiểu 2 ký tự"),
   id: z.string().min(3, "Mã tối thiểu 3 ký tự"),
@@ -77,7 +104,7 @@ const clinicSchema = z.object({
 });
 
 const Clinics = () => {
-  const [clinics, setClinics] = useState<ClinicItem[]>(initialClinics);
+  const [clinics, setClinics] = useState<ClinicItem[]>(() => loadClinics());
   const [query, setQuery] = useState("");
   const [filterType, setFilterType] = useState<ClinicType | "all">("all");
   const [filterStatus, setFilterStatus] = useState<ClinicStatus | "all">("all");
@@ -131,8 +158,27 @@ const Clinics = () => {
   };
 
   const onCreate = (data: z.infer<typeof clinicSchema>) => {
-    const newItem: ClinicItem = { doctors: 0, ...data } as ClinicItem;
-    setClinics((prev) => [newItem, ...prev]);
+    // Auto-generate ID if not provided or if ID already exists
+    let clinicId = data.id.trim();
+    setClinics((prev) => {
+      // Check if ID already exists
+      const idExists = prev.some((c) => c.id === clinicId);
+      if (idExists || !clinicId || !clinicId.startsWith("PK")) {
+        // Auto-generate ID based on existing clinics
+        const existingIds = prev.map((c) => c.id).filter((id) => id.startsWith("PK"));
+        const maxNum = existingIds.length > 0
+          ? Math.max(...existingIds.map((id) => {
+              const num = parseInt(id.replace("PK", ""));
+              return isNaN(num) ? 0 : num;
+            }))
+          : 0;
+        clinicId = `PK${String(maxNum + 1).padStart(3, "0")}`;
+      }
+      const newItem: ClinicItem = { doctors: 0, ...data, id: clinicId } as ClinicItem;
+      const updated = [newItem, ...prev];
+      saveClinics(updated);
+      return updated;
+    });
     setOpenCreate(false);
     form.reset();
     toast.success("Đã thêm phòng khám");
@@ -140,7 +186,11 @@ const Clinics = () => {
 
   const onEdit = (data: z.infer<typeof clinicSchema>) => {
     if (!selected) return;
-    setClinics((prev) => prev.map((c) => (c.id === selected.id ? { ...c, ...data } : c)));
+    setClinics((prev) => {
+      const updated = prev.map((c) => (c.id === selected.id ? { ...c, ...data } : c));
+      saveClinics(updated);
+      return updated;
+    });
     setOpenEdit(false);
     setSelected(null);
     toast.success("Đã cập nhật");
@@ -148,7 +198,11 @@ const Clinics = () => {
 
   const onDelete = () => {
     if (!selected) return;
-    setClinics((prev) => prev.filter((c) => c.id !== selected.id));
+    setClinics((prev) => {
+      const updated = prev.filter((c) => c.id !== selected.id);
+      saveClinics(updated);
+      return updated;
+    });
     setOpenDelete(false);
     setSelected(null);
     toast.success("Đã xóa phòng khám");
@@ -331,7 +385,10 @@ const Clinics = () => {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" className="border-[#E5E7EB]" onClick={() => setClinics([...initialClinics])}><RefreshCw className="h-4 w-4 mr-2" />Làm mới</Button>
+            <Button variant="outline" className="border-[#E5E7EB]" onClick={() => {
+              setClinics(initialClinics);
+              saveClinics(initialClinics);
+            }}><RefreshCw className="h-4 w-4 mr-2" />Làm mới</Button>
             <Button variant="outline" className="border-[#E5E7EB]" onClick={exportCSV}><Download className="h-4 w-4 mr-2" />Xuất CSV</Button>
             <Button className="bg-[#007BFF] hover:bg-[#0056B3]" onClick={() => { form.reset({ name: "", id: "PK" + String(clinics.length + 1).padStart(3, "0"), address: "", type: "headquarter", status: "active", hours: "7h00 - 21h00", manager: "", phone: "", email: "", mapUrl: "", note: "" }); setOpenCreate(true); }}>
               <PlusCircle className="h-4 w-4 mr-2" />Thêm phòng khám

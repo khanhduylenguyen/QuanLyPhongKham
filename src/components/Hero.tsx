@@ -30,7 +30,7 @@ const Hero = () => {
       return;
     }
     // Scroll to featured doctors section
-    const doctorsSection = document.querySelector("#featured-doctors");
+    const doctorsSection = document.querySelector("#doctors");
     if (doctorsSection) {
       doctorsSection.scrollIntoView({ behavior: "smooth" });
     }

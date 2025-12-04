@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Users,
@@ -8,6 +9,7 @@ import {
   Clock,
   AlertCircle,
 } from "lucide-react";
+import { PatientDashboardSkeleton } from "@/components/loading/SkeletonLoaders";
 import {
   BarChart,
   Bar,
@@ -138,6 +140,21 @@ const recentActivities = [
 ];
 
 const Dashboard = () => {
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    // Simulate loading delay
+    setTimeout(() => setIsLoading(false), 300);
+  }, []);
+
+  if (isLoading) {
+    return (
+      <DashboardLayout role="admin">
+        <PatientDashboardSkeleton />
+      </DashboardLayout>
+    );
+  }
+
   return (
     <DashboardLayout role="admin">
       <div className="space-y-6">

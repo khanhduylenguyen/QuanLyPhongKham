@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import {
@@ -37,7 +37,8 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { logout } from "@/lib/auth";
+import { logout, getCurrentUser } from "@/lib/auth";
+import { ThemeToggle } from "@/components/theme/ThemeToggle";
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -104,8 +105,39 @@ const menuItems = [
 const DashboardLayout = ({ children, role = "admin" }: DashboardLayoutProps) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [userAvatar, setUserAvatar] = useState<string | undefined>(undefined);
   const location = useLocation();
   const navigate = useNavigate();
+  const currentUser = getCurrentUser();
+
+  const loadUserAvatar = () => {
+    if (!currentUser) {
+      setUserAvatar(undefined);
+      return;
+    }
+
+    try {
+      // Load from users storage
+      const USERS_KEY = "cliniccare:users";
+      const usersData = JSON.parse(localStorage.getItem(USERS_KEY) || "[]");
+      const foundUser = usersData.find((u: any) => u.id === currentUser.id || u.email === currentUser.email);
+      if (foundUser?.avatar) {
+        setUserAvatar(foundUser.avatar);
+        return;
+      }
+    } catch (error) {
+      console.error("Error loading avatar:", error);
+    }
+    setUserAvatar(undefined);
+  };
+
+  useEffect(() => {
+    loadUserAvatar();
+    // Listen for avatar updates
+    const handleAvatarUpdate = () => loadUserAvatar();
+    window.addEventListener("cliniccare:avatar:updated", handleAvatarUpdate);
+    return () => window.removeEventListener("cliniccare:avatar:updated", handleAvatarUpdate);
+  }, [currentUser]);
 
   const userRoleLabels = {
     admin: "Quản trị viên",
@@ -245,6 +277,28 @@ const DashboardLayout = ({ children, role = "admin" }: DashboardLayoutProps) => 
               </div>
             </div>
 
+            {/* Back to Home */}
+            <Button
+              asChild
+              variant="outline"
+              className="hidden md:inline-flex items-center gap-2 border-[#007BFF] text-[#007BFF] hover:bg-[#007BFF]/10"
+            >
+              <Link to="/">
+                <Home className="h-4 w-4" />
+                Về trang chủ
+              </Link>
+            </Button>
+            <Button
+              asChild
+              variant="ghost"
+              size="icon"
+              className="md:hidden text-[#007BFF]"
+            >
+              <Link to="/">
+                <Home className="h-5 w-5" />
+              </Link>
+            </Button>
+
             {/* Right Actions */}
             <div className="flex items-center gap-2">
               {/* Notifications */}
@@ -279,23 +333,21 @@ const DashboardLayout = ({ children, role = "admin" }: DashboardLayoutProps) => 
                 </DropdownMenuContent>
               </DropdownMenu>
 
-              {/* Theme Toggle (placeholder) */}
-              <Button variant="ghost" size="icon">
-                <Sun className="h-5 w-5 text-[#687280]" />
-              </Button>
+              {/* Theme Toggle */}
+              <ThemeToggle />
 
               {/* User Menu */}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" className="flex items-center gap-2">
                     <Avatar className="h-8 w-8">
-                      <AvatarImage src="" />
+                      <AvatarImage src={userAvatar} />
                       <AvatarFallback className="bg-[#007BFF] text-white text-xs">
-                        AD
+                        {currentUser?.name?.charAt(0).toUpperCase() || "AD"}
                       </AvatarFallback>
                     </Avatar>
                     <span className="hidden md:block text-sm font-medium text-gray-900">
-                      Admin User
+                      {currentUser?.name || "Admin User"}
                     </span>
                   </Button>
                 </DropdownMenuTrigger>

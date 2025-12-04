@@ -5,10 +5,12 @@ export type AuthUser = {
   name: string;
   role: UserRole;
   email?: string;
+  username?: string;
 };
 
 const AUTH_KEY = "cliniccare:auth";
 const USERS_KEY = "cliniccare:users";
+export const AUTH_EVENT = "cliniccare:auth:changed";
 
 export function getCurrentUser(): AuthUser | null {
   try {
@@ -21,10 +23,16 @@ export function getCurrentUser(): AuthUser | null {
 
 export function setCurrentUser(user: AuthUser): void {
   localStorage.setItem(AUTH_KEY, JSON.stringify(user));
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(AUTH_EVENT, { detail: user }));
+  }
 }
 
 export function logout(): void {
   localStorage.removeItem(AUTH_KEY);
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(AUTH_EVENT, { detail: null }));
+  }
 }
 
 export function hasRole(allowed: UserRole | UserRole[]): boolean {
@@ -37,9 +45,9 @@ export function hasRole(allowed: UserRole | UserRole[]): boolean {
 export type DemoUser = AuthUser & { password: string; phone?: string };
 
 export const DEMO_USERS: DemoUser[] = [
-  { id: "U_ADMIN", name: "Admin User", role: "admin", email: "admin@cliniccare.vn", password: "123456" },
-  { id: "U_DOCTOR", name: "BS. Nguyễn Thị Lan", role: "doctor", email: "doctor@cliniccare.vn", password: "123456" },
-  { id: "U_PATIENT", name: "Nguyễn Văn A", role: "patient", email: "patient@cliniccare.vn", password: "123456", phone: "0901234567" },
+  { id: "U_ADMIN", name: "Admin User", role: "admin", email: "  ", password: "123456" },
+  { id: "U_DOCTOR", name: "BS. Lê Nguyễn Khánh Duy", role: "doctor", email: "doctor@cliniccare.vn", password: "123456" },
+  { id: "U_PATIENT", name: "Nguyễn Ngọc Đầy", role: "patient", email: "patient@cliniccare.vn", password: "123456", phone: "0901234567" },
 ];
 
 export function seedDemoUsers(): void {
@@ -216,6 +224,94 @@ export function createStaffAccount(
     return user as AuthUser;
   } catch (error) {
     console.error("Error creating staff account:", error);
+    return null;
+  }
+}
+
+/**
+ * Xác thực hoặc tạo user mới từ Google OAuth
+ * @param googleUser - Thông tin user từ Google (có email, name, picture)
+ * @returns AuthUser nếu thành công, null nếu thất bại
+ */
+export function authenticateWithGoogle(googleUser: {
+  email: string;
+  name: string;
+  picture?: string;
+}): AuthUser | null {
+  try {
+    const list: DemoUser[] = JSON.parse(localStorage.getItem(USERS_KEY) || "[]");
+    
+    // Tìm user theo email
+    const existing = list.find((u) => u.email === googleUser.email);
+    
+    if (existing) {
+      // User đã tồn tại, đăng nhập
+      const { password: _pw, ...user } = existing;
+      return user as AuthUser;
+    }
+    
+    // User chưa tồn tại, tạo tài khoản mới với role patient
+    const newUser: DemoUser = {
+      id: `U_GOOGLE_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      name: googleUser.name,
+      role: "patient",
+      email: googleUser.email,
+      // Không có password vì đăng nhập bằng Google
+      password: "", // Để trống hoặc random string
+      // Không có phone và username, user có thể cập nhật sau
+    };
+    
+    // Lưu vào danh sách users
+    list.push(newUser);
+    localStorage.setItem(USERS_KEY, JSON.stringify(list));
+    
+    // Tự động tạo Patient record (tương tự như registerUser)
+    try {
+      const PATIENTS_STORAGE_KEY = "cliniccare:patients";
+      const existingPatients = JSON.parse(localStorage.getItem(PATIENTS_STORAGE_KEY) || "[]");
+      
+      const existingPatient = existingPatients.find(
+        (p: any) => p.email === googleUser.email
+      );
+      
+      if (!existingPatient) {
+        let maxId = 0;
+        existingPatients.forEach((p: any) => {
+          const match = p.id?.match(/^P(\d+)$/);
+          if (match) {
+            const num = parseInt(match[1], 10);
+            if (num > maxId) maxId = num;
+          }
+        });
+        const patientId = `P${String(maxId + 1).padStart(3, "0")}`;
+        
+        const newPatient = {
+          id: patientId,
+          fullName: googleUser.name,
+          gender: "male" as "male" | "female",
+          age: 0,
+          phone: "", // User có thể cập nhật sau
+          doctor: "Chưa phân công",
+          lastVisit: new Date().toISOString().slice(0, 10),
+          status: "pending" as "pending" | "treating" | "completed",
+          email: googleUser.email,
+          userId: newUser.id,
+        };
+        
+        existingPatients.push(newPatient);
+        localStorage.setItem(PATIENTS_STORAGE_KEY, JSON.stringify(existingPatients));
+        
+        window.dispatchEvent(new CustomEvent("patientRegistered", { detail: newPatient }));
+      }
+    } catch (error) {
+      console.error("Error creating patient record:", error);
+    }
+    
+    // Trả về user không có password
+    const { password: _pw, ...user } = newUser;
+    return user as AuthUser;
+  } catch (error) {
+    console.error("Error authenticating with Google:", error);
     return null;
   }
 }

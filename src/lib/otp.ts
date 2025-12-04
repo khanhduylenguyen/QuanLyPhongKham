@@ -50,11 +50,15 @@ export async function sendOTP(email: string): Promise<{ success: boolean; otp?: 
       console.log(`🔐 OTP Code for ${email}: ${otp}`);
       
       // Trong development, vẫn return success để không block flow
-      if (process.env.NODE_ENV === "development") {
+      // Chỉ return error nếu thực sự có lỗi (không phải do thiếu config)
+      if (import.meta.env.MODE === "development" || import.meta.env.DEV) {
+        // Nếu error là do thiếu config, không return error (expected behavior)
+        const isConfigMissing = emailResult.error?.includes("cấu hình email service");
         return { 
           success: true, 
           otp: otp, 
-          error: emailResult.error 
+          // Chỉ return error nếu không phải do thiếu config
+          error: isConfigMissing ? undefined : emailResult.error
         };
       }
       
@@ -68,13 +72,13 @@ export async function sendOTP(email: string): Promise<{ success: boolean; otp?: 
     console.log(`[OTP Service] OTP email sent to ${email}`);
     
     // Trong development, vẫn log OTP để dễ test
-    if (process.env.NODE_ENV === "development") {
+    if (import.meta.env.MODE === "development" || import.meta.env.DEV) {
       console.log(`🔐 OTP Code for ${email}: ${otp}`);
     }
 
     return { 
       success: true, 
-      otp: process.env.NODE_ENV === "development" ? otp : undefined 
+      otp: (import.meta.env.MODE === "development" || import.meta.env.DEV) ? otp : undefined 
     };
   } catch (error) {
     console.error("Error sending OTP:", error);

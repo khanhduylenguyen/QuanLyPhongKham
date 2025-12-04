@@ -124,7 +124,7 @@ const Register = () => {
           console.log(`🔐 OTP Code: ${result.otp}`);
           toast.info(`Mã OTP (dev): ${result.otp}`, { duration: 10000 });
         }
-        // Nếu có warning về email config trong dev mode
+        // Chỉ hiển thị warning nếu có error và không phải do thiếu config
         if (result.error && process.env.NODE_ENV === "development") {
           toast.warning(result.error, { duration: 8000 });
         }
@@ -198,7 +198,7 @@ const Register = () => {
           console.log(`🔐 OTP Code: ${result.otp}`);
           toast.info(`Mã OTP (dev): ${result.otp}`, { duration: 10000 });
         }
-        // Nếu có warning về email config trong dev mode
+        // Chỉ hiển thị warning nếu có error và không phải do thiếu config
         if (result.error && process.env.NODE_ENV === "development") {
           toast.warning(result.error, { duration: 8000 });
         }

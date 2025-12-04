@@ -31,9 +31,13 @@ import {
   Eye,
   X,
   CheckCircle2,
+  Video,
 } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth";
 import { toast } from "sonner";
+import ReviewDialog from "@/components/reviews/ReviewDialog";
+import { hasReviewedAppointment, getReviewByAppointment } from "@/lib/reviews";
+import { Star, CheckCircle } from "lucide-react";
 
 const APPOINTMENTS_STORAGE_KEY = "cliniccare:appointments";
 
@@ -86,6 +90,7 @@ const Appointments = () => {
   const [filterStatus, setFilterStatus] = useState<AppointmentStatus | "all">("all");
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
+  const [isReviewDialogOpen, setIsReviewDialogOpen] = useState(false);
 
   // Load appointments
   useEffect(() => {
@@ -308,17 +313,31 @@ const Appointments = () => {
                                   )}
                                 </div>
                               </div>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleView(appointment);
-                                }}
-                                className="ml-4"
-                              >
-                                <Eye className="h-4 w-4" />
-                              </Button>
+                              <div className="flex items-center gap-2 ml-4">
+                                {appointment.status === "confirmed" && (
+                                  <Button
+                                    size="sm"
+                                    className="bg-[#16a34a] hover:bg-[#15803d]"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      navigate(`/telemedicine/${appointment.id}`);
+                                    }}
+                                  >
+                                    <Video className="h-4 w-4 mr-2" />
+                                    Gọi video
+                                  </Button>
+                                )}
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleView(appointment);
+                                  }}
+                                >
+                                  <Eye className="h-4 w-4" />
+                                </Button>
+                              </div>
                             </div>
                           </div>
                         );
@@ -334,10 +353,14 @@ const Appointments = () => {
                     <div className="space-y-3">
                       {pastAppointments.map((appointment) => {
                         const statusInfo = getStatusInfo(appointment.status);
+                        const isCompleted = appointment.status === "completed";
+                        const hasReviewed = hasReviewedAppointment(appointment.id);
+                        const review = hasReviewed ? getReviewByAppointment(appointment.id) : null;
+                        
                         return (
                           <div
                             key={appointment.id}
-                            className="p-4 rounded-lg border border-[#E5E7EB] bg-gray-50 hover:bg-gray-100 transition-all cursor-pointer opacity-75"
+                            className="p-4 rounded-lg border border-[#E5E7EB] bg-gray-50 hover:bg-gray-100 transition-all cursor-pointer"
                             onClick={() => handleView(appointment)}
                           >
                             <div className="flex items-start justify-between">
@@ -345,6 +368,12 @@ const Appointments = () => {
                                 <div className="flex items-center gap-3 mb-3">
                                   <Badge className={statusInfo.color}>{statusInfo.label}</Badge>
                                   <span className="text-xs text-[#687280]">ID: {appointment.id}</span>
+                                  {isCompleted && hasReviewed && review && (
+                                    <Badge variant="secondary" className="flex items-center gap-1">
+                                      <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
+                                      Đã đánh giá {review.rating}/5
+                                    </Badge>
+                                  )}
                                 </div>
                                 <div className="space-y-2">
                                   <div className="flex items-center gap-2">
@@ -360,17 +389,33 @@ const Appointments = () => {
                                   </div>
                                 </div>
                               </div>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleView(appointment);
-                                }}
-                                className="ml-4"
-                              >
-                                <Eye className="h-4 w-4" />
-                              </Button>
+                              <div className="flex items-center gap-2 ml-4">
+                                {isCompleted && !hasReviewed && (
+                                  <Button
+                                    variant="default"
+                                    size="sm"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setSelectedAppointment(appointment);
+                                      setIsReviewDialogOpen(true);
+                                    }}
+                                    className="bg-yellow-500 hover:bg-yellow-600 text-white"
+                                  >
+                                    <Star className="h-4 w-4 mr-1" />
+                                    Đánh giá
+                                  </Button>
+                                )}
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleView(appointment);
+                                  }}
+                                >
+                                  <Eye className="h-4 w-4" />
+                                </Button>
+                              </div>
                             </div>
                           </div>
                         );
@@ -465,6 +510,34 @@ const Appointments = () => {
           )}
           <DialogFooter>
             {selectedAppointment &&
+              selectedAppointment.status === "confirmed" &&
+              isUpcoming(selectedAppointment) && (
+                <Button
+                  className="bg-[#16a34a] hover:bg-[#15803d]"
+                  onClick={() => {
+                    setIsViewDialogOpen(false);
+                    navigate(`/telemedicine/${selectedAppointment.id}`);
+                  }}
+                >
+                  <Video className="h-4 w-4 mr-2" />
+                  Gọi video với bác sĩ
+                </Button>
+              )}
+            {selectedAppointment &&
+              selectedAppointment.status === "completed" &&
+              !hasReviewedAppointment(selectedAppointment.id) && (
+                <Button
+                  onClick={() => {
+                    setIsViewDialogOpen(false);
+                    setIsReviewDialogOpen(true);
+                  }}
+                  className="bg-yellow-500 hover:bg-yellow-600 text-white"
+                >
+                  <Star className="h-4 w-4 mr-2" />
+                  Đánh giá bác sĩ
+                </Button>
+              )}
+            {selectedAppointment &&
               isUpcoming(selectedAppointment) &&
               selectedAppointment.status !== "cancelled" && (
                 <Button
@@ -485,6 +558,46 @@ const Appointments = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Review Dialog */}
+      {selectedAppointment && user && (
+        <ReviewDialog
+          open={isReviewDialogOpen}
+          onOpenChange={setIsReviewDialogOpen}
+          doctorId={selectedAppointment.doctorId}
+          doctorName={selectedAppointment.doctorName}
+          appointmentId={selectedAppointment.id}
+          patientId={user.id}
+          patientName={user.name || "Bệnh nhân"}
+          onSuccess={() => {
+            // Reload appointments to show updated review status
+            const allAppointments = loadAppointments();
+            if (!user) {
+              setAppointments([]);
+              return;
+            }
+            const patientAppointments = allAppointments.filter((apt) => {
+              const nameMatch = apt.patientName === user.name;
+              const emailMatch = user.email && apt.patientEmail === user.email;
+              let phoneMatch = false;
+              try {
+                const users = JSON.parse(localStorage.getItem("cliniccare:users") || "[]");
+                const userData = users.find((u: any) => u.id === user.id);
+                if (userData?.phone && apt.patientPhone) {
+                  phoneMatch = apt.patientPhone === userData.phone;
+                }
+              } catch {}
+              return nameMatch || emailMatch || phoneMatch;
+            });
+            const sorted = patientAppointments.sort((a, b) => {
+              const dateA = new Date(`${a.date}T${a.time}`).getTime();
+              const dateB = new Date(`${b.date}T${b.time}`).getTime();
+              return dateA - dateB;
+            });
+            setAppointments(sorted);
+          }}
+        />
+      )}
     </PatientLayout>
   );
 };

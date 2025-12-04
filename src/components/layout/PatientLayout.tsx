@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { CalendarPlus, ClipboardList, Pill, FileText, LayoutDashboard, Menu, X, Search, Bell, User } from "lucide-react";
+import { CalendarPlus, ClipboardList, Pill, FileText, LayoutDashboard, Menu, X, Search, Bell, User, CreditCard, Video, Clock, TestTube, Activity, Users } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { logout } from "@/lib/auth";
+import { logout, getCurrentUser } from "@/lib/auth";
+import { ThemeToggle } from "@/components/theme/ThemeToggle";
 
 type Props = { children: React.ReactNode };
 
@@ -12,16 +13,53 @@ const menu = [
   { title: "Tổng quan", icon: LayoutDashboard, href: "/patient" },
   { title: "Đặt lịch", icon: CalendarPlus, href: "/patient/book" },
   { title: "Lịch hẹn", icon: ClipboardList, href: "/patient/appointments" },
+  { title: "Thanh toán", icon: CreditCard, href: "/patient/payments" },
   { title: "Hồ sơ bệnh án", icon: FileText, href: "/patient/records" },
   { title: "Toa thuốc", icon: Pill, href: "/patient/prescriptions" },
+  { title: "Lịch uống thuốc", icon: Clock, href: "/patient/medication-schedule" },
+  { title: "Kết quả xét nghiệm", icon: TestTube, href: "/patient/test-results" },
+  { title: "Health Dashboard", icon: Activity, href: "/patient/health" },
+  { title: "Quản lý Gia đình", icon: Users, href: "/patient/family" },
   { title: "Thông báo", icon: Bell, href: "/patient/notifications" },
+  { title: "Telemedicine", icon: Video, href: "/telemedicine" },
 ];
 
 const PatientLayout = ({ children }: Props) => {
   const [open, setOpen] = useState(true);
   const [mobile, setMobile] = useState(false);
+  const [userAvatar, setUserAvatar] = useState<string | undefined>(undefined);
   const location = useLocation();
   const navigate = useNavigate();
+  const currentUser = getCurrentUser();
+
+  const loadUserAvatar = () => {
+    if (!currentUser) {
+      setUserAvatar(undefined);
+      return;
+    }
+
+    try {
+      // Load from users storage
+      const USERS_KEY = "cliniccare:users";
+      const usersData = JSON.parse(localStorage.getItem(USERS_KEY) || "[]");
+      const foundUser = usersData.find((u: any) => u.id === currentUser.id || u.email === currentUser.email);
+      if (foundUser?.avatar) {
+        setUserAvatar(foundUser.avatar);
+        return;
+      }
+    } catch (error) {
+      console.error("Error loading avatar:", error);
+    }
+    setUserAvatar(undefined);
+  };
+
+  useEffect(() => {
+    loadUserAvatar();
+    // Listen for avatar updates
+    const handleAvatarUpdate = () => loadUserAvatar();
+    window.addEventListener("cliniccare:avatar:updated", handleAvatarUpdate);
+    return () => window.removeEventListener("cliniccare:avatar:updated", handleAvatarUpdate);
+  }, [currentUser]);
 
   return (
     <div className="min-h-screen bg-[#F9FAFB] flex">
@@ -65,8 +103,14 @@ const PatientLayout = ({ children }: Props) => {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              <ThemeToggle />
               <Button variant="ghost" size="icon"><Bell className="h-5 w-5 text-[#687280]" /></Button>
-              <Avatar className="h-8 w-8"><AvatarImage src="" /><AvatarFallback className="bg-[#007BFF] text-white text-xs">PT</AvatarFallback></Avatar>
+              <Avatar className="h-8 w-8">
+                <AvatarImage src={userAvatar} />
+                <AvatarFallback className="bg-[#007BFF] text-white text-xs">
+                  {currentUser?.name?.charAt(0).toUpperCase() || "PT"}
+                </AvatarFallback>
+              </Avatar>
               <Button variant="outline" className="border-[#E5E7EB]" onClick={()=>{ logout(); navigate("/login"); }}>Đăng xuất</Button>
             </div>
           </div>

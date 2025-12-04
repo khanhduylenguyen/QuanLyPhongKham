@@ -1,8 +1,10 @@
+import { useState, useEffect } from "react";
 import PatientLayout from "@/components/layout/PatientLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { CalendarPlus, ClipboardList, Pill, FileText, ArrowRight } from "lucide-react";
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
+import { PatientDashboardSkeleton } from "@/components/loading/SkeletonLoaders";
 
 const history = [
   { month: "T1", visits: 1 },
@@ -14,6 +16,21 @@ const history = [
 ];
 
 const PatientDashboard = () => {
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    // Simulate loading delay
+    setTimeout(() => setIsLoading(false), 300);
+  }, []);
+
+  if (isLoading) {
+    return (
+      <PatientLayout>
+        <PatientDashboardSkeleton />
+      </PatientLayout>
+    );
+  }
+
   return (
     <PatientLayout>
       <div className="flex items-center justify-between">

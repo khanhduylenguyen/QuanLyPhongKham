@@ -49,6 +49,33 @@ const initialData: ResourceItem[] = [
   { id: "MD003", type: "medication", name: "Vitamin C 1g", code: "VITC1G", category: "Vitamin", unit: "viên", price: 2500, stock: 0, status: "out" },
 ];
 
+const RESOURCES_STORAGE_KEY = "cliniccare:resources";
+
+// Load resources from localStorage or use initial data
+const loadResources = (): ResourceItem[] => {
+  try {
+    const stored = localStorage.getItem(RESOURCES_STORAGE_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      return Array.isArray(parsed) && parsed.length > 0 ? parsed : initialData;
+    }
+  } catch {
+    // Fallback to initial data if parse fails
+  }
+  return initialData;
+};
+
+// Save resources to localStorage
+const saveResources = (resources: ResourceItem[]) => {
+  try {
+    localStorage.setItem(RESOURCES_STORAGE_KEY, JSON.stringify(resources));
+    // Dispatch custom event to notify other components
+    window.dispatchEvent(new CustomEvent("resourcesUpdated"));
+  } catch {
+    // Ignore storage errors
+  }
+};
+
 const resourceSchema = z.object({
   type: z.enum(["service", "medication"]),
   name: z.string().min(2, "Tên tối thiểu 2 ký tự"),
@@ -75,7 +102,7 @@ const iconByType: Record<ResourceType, JSX.Element> = {
 const currency = (v: number) => v.toLocaleString("vi-VN", { style: "currency", currency: "VND" });
 
 const Services = () => {
-  const [items, setItems] = useState<ResourceItem[]>(initialData);
+  const [items, setItems] = useState<ResourceItem[]>(() => loadResources());
   const [query, setQuery] = useState("");
   const [filterType, setFilterType] = useState<ResourceType | "all">("all");
   const [filterCategory, setFilterCategory] = useState<string | "all">("all");
@@ -147,12 +174,24 @@ const Services = () => {
 
   const onCreate = (data: z.infer<typeof resourceSchema>) => {
     const idPrefix = data.type === "service" ? "SV" : "MD";
-    const nextIndex = items.filter((x) => x.type === data.type).length + 1;
-    const newItem: ResourceItem = {
-      id: `${idPrefix}${String(nextIndex).padStart(3, "0")}`,
-      ...data,
-    };
-    setItems((prev) => [newItem, ...prev]);
+    setItems((prev) => {
+      // Find the highest existing ID number for this type
+      const existingIds = prev
+        .filter((x) => x.type === data.type && x.id.startsWith(idPrefix))
+        .map((x) => {
+          const num = parseInt(x.id.replace(idPrefix, ""));
+          return isNaN(num) ? 0 : num;
+        });
+      const maxNum = existingIds.length > 0 ? Math.max(...existingIds) : 0;
+      const nextIndex = maxNum + 1;
+      const newItem: ResourceItem = {
+        id: `${idPrefix}${String(nextIndex).padStart(3, "0")}`,
+        ...data,
+      };
+      const updated = [newItem, ...prev];
+      saveResources(updated);
+      return updated;
+    });
     setOpenCreate(false);
     form.reset();
     toast.success("Đã thêm mục mới");
@@ -160,7 +199,11 @@ const Services = () => {
 
   const onEdit = (data: z.infer<typeof resourceSchema>) => {
     if (!selected) return;
-    setItems((prev) => prev.map((x) => (x.id === selected.id ? { ...x, ...data } : x)));
+    setItems((prev) => {
+      const updated = prev.map((x) => (x.id === selected.id ? { ...x, ...data } : x));
+      saveResources(updated);
+      return updated;
+    });
     setOpenEdit(false);
     setSelected(null);
     toast.success("Đã cập nhật");
@@ -168,7 +211,11 @@ const Services = () => {
 
   const onDelete = () => {
     if (!selected) return;
-    setItems((prev) => prev.filter((x) => x.id !== selected.id));
+    setItems((prev) => {
+      const updated = prev.filter((x) => x.id !== selected.id);
+      saveResources(updated);
+      return updated;
+    });
     setOpenDelete(false);
     setSelected(null);
     toast.success("Đã xóa");
@@ -371,7 +418,11 @@ const Services = () => {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" className="border-[#E5E7EB]" onClick={() => setItems([...initialData])}>
+            <Button variant="outline" className="border-[#E5E7EB]" onClick={() => {
+              const loaded = loadResources();
+              setItems(loaded);
+              toast.success("Đã làm mới dữ liệu");
+            }}>
               <RefreshCw className="h-4 w-4 mr-2" />Làm mới
             </Button>
             <Button variant="outline" className="border-[#E5E7EB]" onClick={exportCSV}>
